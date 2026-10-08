@@ -31,7 +31,7 @@ Output fields include `title_exact` (case/character-sensitive, NFC Unicode norma
 - No auto-fix: safely preserve the original .bib until a human confirms changes.
 - Metadata APIs require Internet access. If a request fails, row will be `UNVERIFIED` with an explanatory error.
 
-==================================================================================================================
+------------------------------------------------------------------------------------------------------------------------
 # BibTeX 참고문헌 검증 도구
 
 모든 BibTeX 항목을 Crossref의 DOI/제목 기록 및 DataCite의 DOI 기록과 교차 검증합니다. 제목을 나란히 비교하고 Google Scholar **검색 링크**를 제공하는 CSV, JSON 및 클릭 가능한 HTML 보고서를 생성합니다.
