@@ -3,7 +3,7 @@
 ## 실행방법
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
+# .venv/bin/python -m pip install -r requirements.txt
 # .venv/bin/python check_bib.py /path/to/main.bib --out audit_results --email you@university.edu
 .venv/bin/python check_bib.py main.bib --out audit_results
 python3 bibtex_auditor_manual_review/enhance_report.py audit_results/report.csv
