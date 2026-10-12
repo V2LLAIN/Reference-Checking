@@ -1,0 +1,5 @@
+key,status,title,matched_title,year,doi,issues,scholar_url
+sample-metadata-1,REVIEW,"Example: A Paper on Vision (v2)","Example: A Paper on Vision",2024,10.0000/example.1,Title mismatch,
+sample-no-record,UNVERIFIED,"Example: An Unindexed Workshop Paper",,2025,,No registry record,
+sample-exact,EXACT_TITLE_YEAR,"Example: A Grounded Language Model","Example: A Grounded Language Model",2023,10.0000/example.2,,
+sample-meta-2,REVIEW,"Example: Regional Artifacts","Example: Regional Artifact Analysis",2026,,Venue discrepancy,
