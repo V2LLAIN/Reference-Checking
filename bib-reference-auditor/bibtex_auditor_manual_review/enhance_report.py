@@ -11,17 +11,75 @@ import csv
 import hashlib
 import html
 import json
+import re
 from pathlib import Path
 
 
+def normalize_header(name: str) -> str:
+    """Normalize common CSV heading formats, e.g. 'External Registry Title'."""
+    return re.sub(r"[^a-z0-9]+", "_", name.casefold()).strip("_")
+
+
 def pick(record: dict[str, str], *aliases: str) -> str:
-    normalized = {k.casefold().replace("-", "_").replace(" ", "_"): v for k, v in record.items()}
+    normalized = {normalize_header(k): v for k, v in record.items()}
     for alias in aliases:
-        candidate = normalized.get(alias.casefold())
+        candidate = normalized.get(normalize_header(alias))
         if candidate is not None and str(candidate).strip():
             return str(candidate).strip()
     return ""
 
+
+def pick_external_title(record: dict[str, str]) -> str:
+    """Read a registry title already present in CSV, never guess or copy BibTeX title.
+
+    Reference-auditor versions do not always agree on the CSV column name.
+    If the registry metadata was not exported, it must remain visibly missing.
+    """
+    explicit = pick(
+        record, "external_registry_title", "external registry title", "external_title",
+        "external_record_title", "external_registry_record_title", "registry_title",
+        "registry_record_title", "crossref_title", "crossref_record_title",
+        "datacite_title", "datacite_record_title", "matched_title",
+        "matched_record_title", "matched_external_title", "matched_registry_title",
+        "match_title", "found_title", "best_match_title", "selected_title",
+        "candidate_title", "candidate_record_title", "doi_title", "api_title",
+        "metadata_title", "official_title", "source_record_title", "ext_title",
+        "external_registry_paper_title", "registry_paper_title",
+        "title_external", "title_registry", "title_crossref", "title_datacite",
+        "external_match_title", "registry_match_title", "registry_matched_title",
+        "external_registry_match_title", "crossref_matched_title", "matched_work_title"
+    )
+    if explicit:
+        return explicit
+    # Also handle slightly different headings, without accidentally selecting
+    # the user's own input/reference/BibTeX title as an external match.
+    exclude = {"title", "paper_title", "bib_title", "bibtex_title", "reference_title",
+               "original_title", "input_title", "local_title", "provided_title",
+               "citation_title", "submitted_title"}
+    for field, raw_value in record.items():
+        key = normalize_header(field)
+        if (key not in exclude and "title" in key and
+            any(marker in key for marker in
+                ("external", "registry", "crossref", "datacite", "matched", "candidate", "source_record"))
+            and raw_value.strip()):
+            return raw_value.strip()
+    # Optional JSON-in-CSV metadata from other reference auditor variants.
+    for field, raw_value in record.items():
+        key = normalize_header(field)
+        if key not in {"external_record", "registry_record", "crossref_record",
+                       "datacite_record", "matched_record", "selected_record", "external_metadata"}:
+            continue
+        try:
+            record_obj = json.loads(raw_value)
+            if isinstance(record_obj, dict):
+                t = record_obj.get("title", "")
+                if isinstance(t, list):
+                    t = t[0] if t else ""
+                if isinstance(t, str) and t.strip():
+                    return t.strip()
+        except (ValueError, TypeError, IndexError):
+            pass
+    return ""
 
 def make_entries(path: Path):
     with path.open('r', encoding='utf-8-sig', newline='') as fh:
@@ -36,7 +94,7 @@ def make_entries(path: Path):
             record = {str(k): ("" if v is None else str(v)) for k, v in record.items() if k is not None}
             key = pick(record, "key", "bibtex_key", "citation_key", "citekey", "entry_key", "bib_key", "id", "entry_id")
             title = pick(record, "bib_title", "bibtex_title", "title_bibtex", "original_title", "input_title", "local_title", "title", "reference_title")
-            external = pick(record, "matched_title", "registry_title", "external_title", "crossref_title", "found_title", "best_match_title", "selected_title", "candidate_title", "external_record_title")
+            external = pick_external_title(record)
             doi = pick(record, "doi", "matched_doi", "external_doi")
             year = pick(record, "year", "bib_year", "bibtex_year")
             status = pick(record, "status", "result", "validation_status", "match_status").upper() or "UNVERIFIED"
@@ -71,11 +129,15 @@ STYLES = r'''
 * {box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans-serif;margin:0;background:var(--paper);color:var(--ink)}
 main{max-width:1460px;margin:auto;padding:28px 22px 64px}h1{font-size:27px;margin:0 0 6px}p{line-height:1.48}.lede{color:var(--muted);margin:0 0 18px}
 .toolbar,.stats{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:14px 0}
-.stat{background:white;border:1px solid var(--line);border-radius:10px;min-width:145px;padding:10px 14px}.stat .number{font-size:23px;font-weight:750}.stat .label{color:var(--muted);font-size:12px}
+.stat{background:white;border:1px solid var(--line);border-radius:10px;min-width:145px;padding:10px 14px;text-align:left;font-family:inherit;cursor:pointer;transition:border-color .12s, background .12s, box-shadow .12s}
+.stat:hover{border-color:#8baadd;background:#f9fbff}.stat:focus-visible{outline:3px solid #8daef1;outline-offset:2px}
+.stat.active{border-color:var(--blue);background:#ebf2ff;box-shadow:inset 0 0 0 1px var(--blue)}
+.stat .number{font-size:23px;font-weight:750}.stat .label{color:var(--muted);font-size:12px}.stat.active .label{color:#194aab;font-weight:750}
+.stat-hint{color:var(--muted);font-size:12px;margin:0 0 4px 2px}
 .toolbar{background:white;border:1px solid var(--line);border-radius:11px;padding:12px;gap:8px}input[type='search'],select{border:1px solid #cfd6e0;border-radius:7px;padding:9px 11px;font-size:14px;background:white;color:var(--ink)}input[type='search']{min-width:235px;flex:1}
 button,.file-label{border:1px solid #b9c7d9;background:white;color:var(--ink);padding:9px 12px;border-radius:7px;font-size:13px;cursor:pointer;white-space:nowrap}button:hover,.file-label:hover{border-color:var(--blue);color:var(--blue)}.primary{background:var(--blue);color:#fff;border-color:var(--blue)}.primary:hover{background:#183f92;color:white}
 .file-label input{display:none}.note{font-size:13px;color:var(--muted);padding:2px 4px}.table-wrap{overflow-x:auto;background:#fff;border:1px solid var(--line);border-radius:11px}table{width:100%;border-collapse:collapse;min-width:1040px;table-layout:fixed}th{position:sticky;top:0;background:#eef2f7;color:#445568;text-align:left;font-size:12px;padding:12px 10px;border-bottom:1px solid var(--line)}td{padding:12px 10px;border-bottom:1px solid #eef0f3;vertical-align:top;font-size:13px;overflow-wrap:anywhere}tbody tr:hover{background:#f9fbfd}tbody tr:last-child td{border-bottom:none}
-.key{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}.title-text{line-height:1.4}.subtle{font-size:12px;color:var(--muted);padding-top:4px}.status{display:inline-block;padding:4px 7px;border-radius:6px;font-size:11px;font-weight:750;letter-spacing:.02em;white-space:nowrap}.status-REVIEW{color:var(--amber);background:#fff0d8}.status-UNVERIFIED{color:var(--red);background:#ffe6ea}.status-EXACT_TITLE_YEAR{color:#42648d;background:#e7effa}.status-VERIFIED{color:var(--green);background:#def5e9}
+.missing-registry{color:#8793a1;font-style:italic}.key{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}.title-text{line-height:1.4}.subtle{font-size:12px;color:var(--muted);padding-top:4px}.status{display:inline-block;padding:4px 7px;border-radius:6px;font-size:11px;font-weight:750;letter-spacing:.02em;white-space:nowrap}.status-REVIEW{color:var(--amber);background:#fff0d8}.status-UNVERIFIED{color:var(--red);background:#ffe6ea}.status-EXACT_TITLE_YEAR{color:#42648d;background:#e7effa}.status-VERIFIED{color:var(--green);background:#def5e9}
 .verify{display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:650}.verify input{accent-color:var(--green);width:17px;height:17px}.memo{width:100%;border:1px solid #d3d9e1;border-radius:5px;padding:6px 7px;font-size:12px}.links a{display:inline-block;margin:0 9px 6px 0;color:var(--blue);text-decoration:none}.links a:hover{text-decoration:underline}.details{margin-top:5px}.details summary{cursor:pointer;color:#52647f}.details pre{white-space:pre-wrap;word-break:break-word;font-size:11px;line-height:1.5;border:1px solid var(--line);padding:8px;border-radius:6px;background:#f7f9fc}
 .msg{font-size:12px;color:var(--green);min-height:18px}.foot{color:var(--muted);font-size:12px;line-height:1.55;margin-top:16px}
 @media (max-width:700px){main{padding:16px 10px 40px}h1{font-size:22px}.stat{flex:1;min-width:105px}.toolbar{align-items:stretch}input[type='search']{min-width:100%;flex-basis:100%}}
@@ -127,7 +189,7 @@ SCRIPT = r'''
    const stBox=element('span','status status-'+status(e),status(e));
    const stCell=addCell(row,stBox);stCell.appendChild(element('div','subtle',manual(e)?'Manual review': 'Automated audit'));
    const titleBox=element('div','title-text',e.title || '(제목 없음)');addCell(row,titleBox);
-   const extBox=element('div','title-text',e.external_title || '—');addCell(row,extBox);
+   const extBox=element('div',e.external_title?'title-text':'title-text missing-registry',e.external_title || 'CSV에 외부 제목 정보 없음');addCell(row,extBox);
    addCell(row,element('span','',e.year||'—'));
    const links=element('div','links');
    let scholar=e.scholar_url;
@@ -171,6 +233,7 @@ SCRIPT = r'''
    const body=$('audit-rows');body.replaceChildren();
    for(const e of rows)body.appendChild(makeRow(e));
    $('display-count').textContent=`표시: ${rows.length} / ${entries.length}`;
+   document.querySelectorAll('.stat[data-filter]').forEach(btn=>{const active=btn.dataset.filter===filter;btn.classList.toggle('active',active);btn.setAttribute('aria-pressed',String(active));});
  }
  function csvEscape(v){const x=String(v??'');return /[",\r\n]/.test(x)?'"'+x.replaceAll('"','""')+'"':x;}
  $('download-csv').addEventListener('click',()=>{
@@ -200,6 +263,7 @@ SCRIPT = r'''
    if(!confirm('현재 표시된 리포트의 수동 검증 상태를 모두 초기화할까요? 먼저 JSON 백업을 권장합니다.'))return;
    for(const e of entries)delete saved[e.key];persist();render();say('수동 검증 상태를 초기화했습니다.');
  });
+ document.querySelectorAll('.stat[data-filter]').forEach(btn=>btn.addEventListener('click',()=>{$('filter').value=btn.dataset.filter;render();}));
  $('search').addEventListener('input',render);$('filter').addEventListener('change',render);
  load();render();
  if(payload.derived_key_warning)say('주의: CSV에 BibTeX key가 없는 항목이 있습니다. 제목/DOI/연도에서 생성한 ID이므로 원문이 바뀌면 상태 연결이 달라질 수 있습니다.');
@@ -211,15 +275,16 @@ def generate(headers, entries, key_missing, title):
     data = {"headers": headers, "entries": entries, "derived_key_warning": key_missing}
     safe_json = json.dumps(data, ensure_ascii=False, separators=(',', ':'))
     safe_json = safe_json.replace('&', '\\u0026').replace('<', '\\u003c').replace('>', '\\u003e').replace('\u2028', '\\u2028').replace('\u2029','\\u2029')
-    stats = ''.join(f'<div class="stat"><div id="count-{name}" class="number">0</div><div class="label">{name}</div></div>' for name in ["UNVERIFIED","REVIEW","EXACT_TITLE_YEAR","VERIFIED"])
+    stats = ''.join(f'<button type="button" class="stat" data-filter="{name}" aria-pressed="false" title="{name} 상태만 보기"><div id="count-{name}" class="number">0</div><div class="label">{name}</div></button>' for name in ["UNVERIFIED","REVIEW","EXACT_TITLE_YEAR","VERIFIED"])
     return f'''<!doctype html>
 <html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{html.escape(title)}</title><style>{STYLES}</style></head>
 <body><main><h1>{html.escape(title)}</h1><p class="lede">BibTeX 자동 검증과 수동 확인을 구분하는 오프라인 검토 대시보드 · 미검증 항목이 항상 위쪽</p>
-<section class="stats" aria-label="검증 통계"><div class="stat"><div id="count-all" class="number">0</div><div class="label">TOTAL</div></div>{stats}</section>
+<section class="stats" aria-label="검증 통계 및 상태별 필터"><button type="button" class="stat active" data-filter="ALL" aria-pressed="true" title="모든 참고문헌 보기"><div id="count-all" class="number">0</div><div class="label">TOTAL</div></button>{stats}</section>
+<p class="stat-hint">↑ 숫자 카드를 클릭하면 해당 상태만 표시합니다. TOTAL을 누르면 전체 목록으로 돌아갑니다.</p>
 <section class="toolbar" aria-label="검토 도구"><input id="search" type="search" placeholder="BibTeX key / 제목 / DOI 검색" aria-label="참고문헌 검색"><select id="filter" aria-label="상태 필터"><option value="ALL">전체 상태</option><option value="OPEN">미검증만 (REVIEW + UNVERIFIED)</option><option value="UNVERIFIED">UNVERIFIED</option><option value="REVIEW">REVIEW</option><option value="EXACT_TITLE_YEAR">EXACT_TITLE_YEAR</option><option value="VERIFIED">VERIFIED</option></select>
 <button class="primary" id="download-csv">검토 결과 CSV 저장</button><button id="download-json">체크 상태 백업 JSON</button><label class="file-label">체크 상태 복원 JSON<input id="import-json" type="file" accept=".json,application/json"></label><button id="reset">체크 초기화</button></section>
 <p id="display-count" class="note"></p><p id="message" class="msg" role="status" aria-live="polite"></p>
-<div class="table-wrap"><table><colgroup><col style="width:13%"><col style="width:12%"><col style="width:18%"><col style="width:18%"><col style="width:6%"><col style="width:13%"><col style="width:10%"><col style="width:10%"></colgroup><thead><tr><th>BibTeX key</th><th>Status</th><th>BibTeX title</th><th>External registry title</th><th>Year</th><th>Links / Raw metadata</th><th>Issues</th><th>Manual verification</th></tr></thead><tbody id="audit-rows"></tbody></table></div>
+<div class="table-wrap"><table><colgroup><col style="width:12%"><col style="width:11%"><col style="width:19%"><col style="width:20%"><col style="width:5%"><col style="width:13%"><col style="width:10%"><col style="width:10%"></colgroup><thead><tr><th>BibTeX key</th><th>Status</th><th>BibTeX title</th><th>External registry title</th><th>Year</th><th>Links / Raw metadata</th><th>Issues</th><th>Manual verification</th></tr></thead><tbody id="audit-rows"></tbody></table></div>
 <p class="foot"><strong>중요:</strong> VERIFIED는 사람이 확인했다는 뜻이며 Crossref/DataCite의 자동 검증 결과(EXACT_TITLE_YEAR)를 변경하지 않습니다. 체크를 해제하면 원래 자동 검증 상태로 되돌아갑니다. 체크 기록은 브라우저 로컬 저장소에 보관될 수 있지만 <code>file://</code> 환경과 브라우저 설정에 따라 보존되지 않을 수 있으므로 반드시 JSON으로 백업하세요. 원본 <code>main.bib</code>과 <code>report.csv</code>는 수정되지 않습니다. Google Scholar 링크는 수동 검색 링크일 뿐 자동 조회하지 않습니다.</p>
 </main><script id="audit-data" type="application/json">{safe_json}</script><script>{SCRIPT}</script></body></html>'''
 
@@ -238,6 +303,11 @@ def main():
     out.write_text(generate(headers, entries, missing, args.title), encoding='utf-8')
     print(f'Created: {out.resolve()} ({len(entries)} entries)')
     if missing: print('WARNING: BibTeX key 컬럼을 찾지 못한 항목이 있어 fallback ID가 사용되었습니다.')
+    missing_external = sum(not e['external_title'] for e in entries)
+    if missing_external:
+        print(f'NOTICE: {missing_external}/{len(entries)} entries have no external registry title in report.csv.')
+        print('  Available CSV columns: ' + ', '.join(headers))
+        print('  If registry titles were not exported by check_bib.py, the auditor must export them first.')
 
 
 if __name__=='__main__':main()
