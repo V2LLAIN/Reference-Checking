@@ -9,5 +9,10 @@ python3 -m venv .venv
 python3 bibtex_auditor_manual_review/enhance_report.py audit_results/report.csv
 ```
 
+```bash
+open audit_results/report_review.html
+```
+
+
 
 ![실행 결과 예시](result.png)
